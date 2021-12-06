@@ -48,7 +48,7 @@ typedef struct {
 
 
 typedef struct {
-	zend_llist headers;
+    zend_llist headers;
 	int http_response_code;
 	unsigned char send_default_content_type;
 	char *mimetype;

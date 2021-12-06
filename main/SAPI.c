@@ -36,6 +36,7 @@
 #endif
 
 #include "rfc1867.h"
+#include "rfc7230.h"
 
 #include "php_content_types.h"
 
@@ -546,9 +547,22 @@ SAPI_API void sapi_initialize_empty_request(void)
 	SG(request_info).content_type_dup = NULL;
 }
 
-
 static int sapi_extract_response_code(const char *header_line)
 {
+
+#if 1
+
+    http_status_line status_line;
+    http_status_error_t*
+    error = http_status_line_parse(header_line, &status_line);
+    if (error) {
+        free(error);
+        return FAILURE;
+    }
+
+    return status_line.code;
+
+#else
 	zend_ulong code = 200;
 	const char *ptr;
 
@@ -569,6 +583,7 @@ static int sapi_extract_response_code(const char *header_line)
 	}
 
 	return (int)code;
+#endif
 }
 
 
@@ -755,8 +770,32 @@ SAPI_API int sapi_header_op(sapi_header_op_enum op, void *arg)
 	/* Check the header for a few cases that we have special support for in SAPI */
 	if (header_line_len>=5
 		&& !strncasecmp(header_line, "HTTP/", 5)) {
-		/* filter out the response code */
-		int status_code = sapi_extract_response_code(header_line);
+#if 1
+    /* filter out the response code */
+    http_status_line status_line;
+    http_status_error_t *status = http_status_line_parse(header_line, &status_line);
+    if (SUCCESS!=status) {
+        sapi_module.sapi_error(E_FATAL_ERRORS, status->message);
+        free(status);
+        return FAILURE;
+    }
+
+    // Sanity check
+    if (status_line.code > 600) {
+        sapi_module.sapi_error(E_WARNING, "Cannot set HTTP status line - "
+            "status code is malformed"
+            "status code is out of range");
+        efree(header_line);
+        return FAILURE;
+    }
+    // todo Check unsupported HTTP/x.x version by Apache/httpd
+
+    sapi_update_response_code(status_line.code);//
+    sapi_extract_response_code(header_line);
+
+#else
+        /* filter out the response code */
+        int status_code = sapi_extract_response_code(header_line);
 		if (status_code < 0) {
 			sapi_module.sapi_error(E_WARNING, "Cannot set HTTP status line - "
 				"status code is malformed");
@@ -769,6 +808,7 @@ SAPI_API int sapi_header_op(sapi_header_op_enum op, void *arg)
 			efree(SG(sapi_headers).http_status_line);
 		}
 		SG(sapi_headers).http_status_line = header_line;
+#endif
 		return SUCCESS;
 	} else {
 		colon_offset = strchr(header_line, ':');
